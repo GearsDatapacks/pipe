@@ -1,10 +1,13 @@
+import gleam/dynamic/decode
 import gleam/float
 import gleam/int
 import gleam/list
+import gleam/string
 import lustre
 import lustre/attribute.{attribute}
 import lustre/element
 import lustre/element/svg
+import lustre/event
 import pipe/generated
 import pipe/station.{type Station}
 
@@ -16,29 +19,28 @@ pub fn main() {
 }
 
 fn init(_flags) {
-  Nil
+  Model(0, 0)
 }
 
 type Msg {
-  NothingHappened
+  MouseMoved(x: Int, y: Int)
 }
 
-type Model =
-  Nil
+type Model {
+  Model(mouse_x: Int, mouse_y: Int)
+}
 
-fn update(model: Model, msg: Msg) -> Model {
+fn update(_model: Model, msg: Msg) -> Model {
   case msg {
-    NothingHappened -> model
+    MouseMoved(x:, y:) -> Model(mouse_x: x, mouse_y: y)
   }
 }
 
 fn view(model: Model) -> element.Element(Msg) {
-  let Nil = model
-
   let width = svg_width()
   let height = svg_height()
 
-  svg.svg([attribute.width(width), attribute.height(height)], [
+  let children = [
     svg.text(
       [attribute("y", int.to_string(height - 50))],
       "Powered by TfL Open Data",
@@ -52,12 +54,78 @@ fn view(model: Model) -> element.Element(Msg) {
       "and Geomni UK Map data © and database rights [2019]",
     ),
     ..list.map(generated.stations, station)
-  ])
+  ]
+
+  let children = case
+    list.find_map(generated.stations, hovered_station_label(_, model))
+  {
+    Ok(label) -> list.append(children, [label])
+    Error(_) -> children
+  }
+
+  svg.svg(
+    [
+      attribute.width(width),
+      attribute.height(height),
+      event.on("mousemove", {
+        use x <- decode.field("clientX", decode.int)
+        use y <- decode.field("clientY", decode.int)
+
+        decode.success(MouseMoved(x - margin, y - margin))
+      }),
+    ],
+    children,
+  )
 }
 
 const station_width = 5
 
 const margin = 10
+
+fn hovered_station_label(
+  station: Station,
+  model: Model,
+) -> Result(element.Element(Msg), Nil) {
+  let x = longitude_to_x(station.longitude)
+  let y = latitude_to_y(station.latitude)
+
+  let x_equal = { x - margin } < model.mouse_x && { x + margin } > model.mouse_x
+  let y_equal = { y - margin } < model.mouse_y && { y + margin } > model.mouse_y
+
+  let hovering = x_equal && y_equal
+
+  case hovering {
+    False -> Error(Nil)
+    True -> {
+      let width = string.length(station.name) * 9
+      let x = x - width / 2
+      let y = y - 10
+
+      let text =
+        svg.text(
+          [
+            attribute("x", int.to_string(x)),
+            attribute("y", int.to_string(y)),
+            attribute("textLength", int.to_string(width)),
+          ],
+          station.name,
+        )
+
+      let box =
+        svg.rect([
+          attribute("x", int.to_string(x - 7)),
+          attribute("y", int.to_string(y - 15)),
+          attribute("fill", "white"),
+          attribute.height(20),
+          attribute.width(width + 14),
+          attribute("stroke-width", "2"),
+          attribute("stroke", "black"),
+        ])
+
+      Ok(svg.g([], [box, text]))
+    }
+  }
+}
 
 fn station(station: Station) -> element.Element(Msg) {
   let x = longitude_to_x(station.longitude)

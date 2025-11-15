@@ -265,7 +265,11 @@ pub const stations = [
   Station("Queen's Park", -0.2047040902342027, 51.534100903446934),
   Station("Richmond", -0.3017542176868921, 51.46315964085974),
   Station("Shepherd's Bush Central", -0.22630545901777493, 51.505560868490754),
-  Station("Shepherd's Bush Hammersmith & City", -0.22630545901777493, 51.505560868490754),
+  Station(
+    "Shepherd's Bush Hammersmith & City",
+    -0.22630545901777493,
+    51.505560868490754,
+  ),
   Station("South Kenton", -0.30858867502021503, 51.57017168687136),
   Station("St. James's Park", -0.13418374411553172, 51.499345456140375),
   Station("St. John's Wood", -0.17417235633672976, 51.53456451631533),
