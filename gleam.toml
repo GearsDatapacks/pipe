@@ -1,5 +1,6 @@
 name = "pipe"
 version = "1.0.0"
+target = "javascript"
 
 # Fill out these fields if you intend to generate HTML documentation or publish
 # your project to the Hex package manager.
@@ -14,9 +15,14 @@ version = "1.0.0"
 
 [dependencies]
 gleam_stdlib = ">= 0.44.0 and < 2.0.0"
+lustre = ">= 5.4.0 and < 6.0.0"
 
 [dev-dependencies]
 gleeunit = ">= 1.0.0 and < 2.0.0"
 simplifile = ">= 2.3.1 and < 3.0.0"
 gleam_regexp = ">= 1.1.1 and < 2.0.0"
 odysseus = ">= 1.0.0 and < 2.0.0"
+lustre_dev_tools = ">= 2.2.3 and < 3.0.0"
+
+[tools.lustre.html]
+stylesheets = [{ href = "/style.css" }]
