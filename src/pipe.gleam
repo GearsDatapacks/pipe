@@ -1,3 +1,4 @@
+import gleam/dict.{type Dict}
 import gleam/dynamic/decode
 import gleam/float
 import gleam/int
@@ -40,6 +41,34 @@ fn view(model: Model) -> element.Element(Msg) {
   let width = svg_width()
   let height = svg_height()
 
+  let #(gradients, stations) =
+    list.map_fold(generated.stations, dict.new(), station)
+
+  let gradients =
+    gradients
+    |> dict.to_list
+    |> list.map(fn(pair) {
+      let #(colours, name) = pair
+
+      let percentage = 100 / list.length(colours)
+      let stops =
+        list.index_map(colours, fn(colour, i) {
+          [
+            svg.stop([
+              attribute("offset", int.to_string(percentage * i) <> "%"),
+              attribute.styles([#("stop-color", colour)]),
+            ]),
+            svg.stop([
+              attribute("offset", int.to_string(percentage * { i + 1 }) <> "%"),
+              attribute.styles([#("stop-color", colour)]),
+            ]),
+          ]
+        })
+        |> list.flatten
+
+      svg.linear_gradient([attribute.id(name)], stops)
+    })
+
   let children = [
     svg.text(
       [attribute("y", int.to_string(height - 50))],
@@ -53,7 +82,7 @@ fn view(model: Model) -> element.Element(Msg) {
       [attribute("y", int.to_string(height - 10))],
       "and Geomni UK Map data © and database rights [2019]",
     ),
-    ..list.map(generated.stations, station)
+    ..list.append(gradients, stations)
   ]
 
   let children = case
@@ -145,16 +174,40 @@ fn hovered_station_label(
   }
 }
 
-fn station(station: Station) -> element.Element(Msg) {
+fn station(
+  gradients: Dict(List(String), String),
+  station: Station,
+) -> #(Dict(List(String), String), element.Element(Msg)) {
   let x = longitude_to_x(station.longitude)
   let y = latitude_to_y(station.latitude)
 
-  svg.circle([
-    attribute("cx", int.to_string(x)),
-    attribute("cy", int.to_string(y)),
-    attribute("r", int.to_string(station_width)),
-    attribute("fill", "black"),
-  ])
+  let colours =
+    station.lines
+    |> list.map(station.line_colour)
+
+  let #(gradients, colour) = case colours {
+    [] -> #(gradients, "#d0d0d0")
+    [colour] -> #(gradients, colour)
+    _ -> {
+      case dict.get(gradients, colours) {
+        Ok(name) -> #(gradients, "url(\"#" <> name <> "\")")
+        Error(Nil) -> {
+          let name = "gradient" <> int.to_string(dict.size(gradients))
+          #(dict.insert(gradients, colours, name), "url(\"#" <> name <> "\")")
+        }
+      }
+    }
+  }
+
+  #(
+    gradients,
+    svg.circle([
+      attribute("cx", int.to_string(x)),
+      attribute("cy", int.to_string(y)),
+      attribute("r", int.to_string(station_width)),
+      attribute("fill", colour),
+    ]),
+  )
 }
 
 fn longitude_to_x(longitude: Float) -> Int {

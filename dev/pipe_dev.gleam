@@ -48,10 +48,15 @@ pub fn main() {
       <> float.to_string(station.longitude)
       <> ", "
       <> float.to_string(station.latitude)
-      <> ")"
+      <> ", ["
+      <> string.join(list.map(station.lines, line_to_string), ", ")
+      <> "])"
     })
 
-  let file = "import pipe/station.{Station}
+  let file = "import pipe/station.{
+  Bakerloo, Central, Circle, District, HammersmithAndCity, Jubilee, Metropolitan,
+  Northern, Piccadilly, Station, Victoria, WaterlooAndCity,
+}
 
 pub const stations = [
   " <> string.join(station_strings, ",\n  ") <> ",
@@ -67,6 +72,22 @@ pub const max_latitude = " <> float.to_string(max_latitude) <> "
 "
 
   let assert Ok(Nil) = file.write(file, to: generated_file)
+}
+
+fn line_to_string(line: station.Line) -> String {
+  case line {
+    station.Bakerloo -> "Bakerloo"
+    station.Central -> "Central"
+    station.Circle -> "Circle"
+    station.District -> "District"
+    station.HammersmithAndCity -> "HammersmithAndCity"
+    station.Jubilee -> "Jubilee"
+    station.Metropolitan -> "Metropolitan"
+    station.Northern -> "Northern"
+    station.Piccadilly -> "Piccadilly"
+    station.Victoria -> "Victoria"
+    station.WaterlooAndCity -> "WaterlooAndCity"
+  }
 }
 
 fn parse_stations(
@@ -89,7 +110,7 @@ fn parse_stations(
 }
 
 fn default_station() -> Station {
-  Station(name: "", longitude: 0.0, latitude: 0.0)
+  Station(name: "", longitude: 0.0, latitude: 0.0, lines: [])
 }
 
 fn parse_station(
@@ -136,6 +157,24 @@ fn parse_station(
       }
     }
 
+    Ok(#(xmlm.ElementStart(xmlm.Tag(xmlm.Name(_, "servingLine"), _)), input)) -> {
+      case parse_text(input) {
+        Ok(#(line, input)) -> {
+          case parse_line(line) {
+            Ok(line) ->
+              parse_station(
+                input,
+                nesting,
+                Station(..station, lines: [line, ..station.lines]),
+                is_tube,
+              )
+            _ -> parse_station(input, nesting, station, is_tube)
+          }
+        }
+        Error(error) -> Error(error)
+      }
+    }
+
     Ok(#(xmlm.ElementEnd, input)) if nesting == 0 ->
       case is_tube {
         True -> Ok(#(Some(station), input))
@@ -147,6 +186,23 @@ fn parse_station(
       parse_station(input, nesting + 1, station, is_tube)
     Ok(#(_, input)) -> parse_station(input, nesting, station, is_tube)
     Error(error) -> Error(xmlm.input_error_to_string(error))
+  }
+}
+
+fn parse_line(line: String) -> Result(station.Line, Nil) {
+  case line {
+    "Bakerloo" -> Ok(station.Bakerloo)
+    "Central" -> Ok(station.Central)
+    "Circle" -> Ok(station.Circle)
+    "District" -> Ok(station.District)
+    "Hammersmith & City" -> Ok(station.HammersmithAndCity)
+    "Jubilee" -> Ok(station.Jubilee)
+    "Metropolitan" -> Ok(station.Metropolitan)
+    "Northern" -> Ok(station.Northern)
+    "Piccadilly" -> Ok(station.Piccadilly)
+    "Victoria" -> Ok(station.Victoria)
+    "Waterloo & City" -> Ok(station.WaterlooAndCity)
+    _ -> Error(Nil)
   }
 }
 
