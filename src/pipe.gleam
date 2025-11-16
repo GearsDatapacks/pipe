@@ -100,6 +100,24 @@ fn hovered_station_label(
       let width = string.length(station.name) * 9
       let x = x - width / 2
       let y = y - 10
+      let box_x = x - 7
+      let box_y = y - 15
+
+      let #(x, box_x) = case box_x <= 0 {
+        False -> #(x, box_x)
+        True -> #(8, 1)
+      }
+
+      let svg_width = svg_width()
+      let #(x, box_x) = case box_x + width + 14 >= svg_width {
+        False -> #(x, box_x)
+        True -> #(svg_width - width - 8, svg_width - width - 15)
+      }
+
+      let #(y, box_y) = case box_y <= 0 {
+        False -> #(y, box_y)
+        True -> #(16, 1)
+      }
 
       let text =
         svg.text(
@@ -113,8 +131,8 @@ fn hovered_station_label(
 
       let box =
         svg.rect([
-          attribute("x", int.to_string(x - 7)),
-          attribute("y", int.to_string(y - 15)),
+          attribute("x", int.to_string(box_x)),
+          attribute("y", int.to_string(box_y)),
           attribute("fill", "white"),
           attribute.height(20),
           attribute.width(width + 14),
