@@ -216,7 +216,8 @@ fn longitude_to_x(longitude: Float) -> Int {
     { longitude -. generated.min_longitude }
     *. width
     /. { generated.max_longitude -. generated.min_longitude }
-  float.round(x) + station_width + margin
+
+  float.round(x) + station_width
 }
 
 fn latitude_to_y(latitude: Float) -> Int {
@@ -225,7 +226,7 @@ fn latitude_to_y(latitude: Float) -> Int {
     { latitude -. generated.min_latitude }
     *. height
     /. { generated.max_latitude -. generated.min_latitude }
-  svg_height() - float.round(y) + station_width + margin
+  svg_height() - float.round(y) - station_width
 }
 
 fn svg_width() {
