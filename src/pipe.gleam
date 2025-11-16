@@ -20,7 +20,7 @@ pub fn main() {
 }
 
 fn init(_flags) {
-  Model(0, 0)
+  Model(-100, -100)
 }
 
 type Msg {
