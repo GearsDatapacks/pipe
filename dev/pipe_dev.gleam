@@ -1,27 +1,89 @@
+import gleam/dict.{type Dict}
+import gleam/dynamic/decode
+import gleam/fetch
 import gleam/float
+import gleam/http/request
+import gleam/javascript/promise.{type Promise}
+import gleam/json
 import gleam/list
-import gleam/option.{type Option, None, Some}
+import gleam/pair
 import gleam/string
 import pipe/station.{type Station, Station}
 import simplifile as file
-import xmlm
-
-const stations_file = "stations-facilities.xml"
 
 const generated_file = "src/pipe/generated.gleam"
 
+type LineInfo {
+  LineInfo(stations: Dict(String, Station), order: List(List(String)))
+}
+
+fn line_info(line: station.Line) -> Promise(LineInfo) {
+  let name = case line {
+    station.Bakerloo -> "bakerloo"
+    station.Central -> "central"
+    station.Circle -> "circle"
+    station.District -> "district"
+    station.HammersmithAndCity -> "hammersmith-city"
+    station.Jubilee -> "jubilee"
+    station.Metropolitan -> "metropolitan"
+    station.Northern -> "northern"
+    station.Piccadilly -> "piccadilly"
+    station.Victoria -> "victoria"
+    station.WaterlooAndCity -> "waterloo-city"
+  }
+
+  echo line
+
+  let url = "https://api.tfl.gov.uk/line/" <> name <> "/route/sequence/outbound"
+
+  let assert Ok(request) = request.to(url)
+  use response <- promise.await(fetch.send(request))
+  let assert Ok(response) = response
+  use response <- promise.await(fetch.read_text_body(response))
+  let assert Ok(response) = response
+  assert response.status == 200
+
+  let assert Ok(info) = json.parse(response.body, info_decoder(line))
+
+  promise.resolve(info)
+}
+
+fn info_decoder(line: station.Line) -> decode.Decoder(LineInfo) {
+  decode.at(
+    ["stopPointSequences"],
+    decode.list(decode.at(["stopPoint"], decode.list(stop_decoder(line)))),
+  )
+  |> decode.map(fn(stops) {
+    let order = list.map(stops, list.map(_, pair.first))
+    let stations =
+      stops |> list.map(dict.from_list) |> list.fold(dict.new(), dict.merge)
+    LineInfo(stations:, order:)
+  })
+}
+
+fn stop_decoder(line: station.Line) -> decode.Decoder(#(String, Station)) {
+  use id <- decode.field("icsId", decode.string)
+
+  use name <- decode.field("name", decode.map(decode.string, strip_suffix))
+  use longitude <- decode.field("lon", decode.float)
+  use latitude <- decode.field("lat", decode.float)
+
+  decode.success(#(id, Station(name:, longitude:, latitude:, lines: [line])))
+}
+
+fn strip_suffix(name: String) -> String {
+  case string.ends_with(name, " Underground Station") {
+    False -> name
+    True -> string.drop_end(name, string.length(" Underground Station"))
+  }
+}
+
 pub fn main() {
-  let assert Ok(stations_contents) = file.read(stations_file)
-    as "Failed to read stations file"
-
-  let input = xmlm.from_string(stations_contents)
-
-  let assert Ok(input) = strip_dtd(input)
-
-  let assert Ok(input) = strip_preamble(input)
-
-  let assert Ok(stations) = parse_stations(input, [])
-  let stations = list.reverse(stations)
+  use #(stations, _lines) <- promise.map(collect_stations_and_lines(
+    station.lines,
+    dict.new(),
+    dict.new(),
+  ))
 
   let min_longitude =
     stations
@@ -74,6 +136,34 @@ pub const max_latitude = " <> float.to_string(max_latitude) <> "
   let assert Ok(Nil) = file.write(file, to: generated_file)
 }
 
+fn collect_stations_and_lines(
+  lines: List(station.Line),
+  stations: Dict(String, Station),
+  out: Dict(station.Line, List(List(String))),
+) -> Promise(#(List(Station), Dict(station.Line, List(List(String))))) {
+  case lines {
+    [] ->
+      promise.resolve(#(
+        list.sort(dict.values(stations), fn(a, b) {
+          string.compare(a.name, b.name)
+        }),
+        out,
+      ))
+    [line, ..lines] -> {
+      use info <- promise.await(line_info(line))
+
+      let stations =
+        dict.combine(stations, info.stations, fn(a, b) {
+          Station(..a, lines: list.append(a.lines, b.lines))
+        })
+
+      let out = dict.insert(out, line, info.order)
+
+      collect_stations_and_lines(lines, stations, out)
+    }
+  }
+}
+
 fn line_to_string(line: station.Line) -> String {
   case line {
     station.Bakerloo -> "Bakerloo"
@@ -87,159 +177,5 @@ fn line_to_string(line: station.Line) -> String {
     station.Piccadilly -> "Piccadilly"
     station.Victoria -> "Victoria"
     station.WaterlooAndCity -> "WaterlooAndCity"
-  }
-}
-
-fn parse_stations(
-  input: xmlm.Input,
-  stations: List(Station),
-) -> Result(List(Station), String) {
-  case xmlm.signal(input) {
-    Ok(#(xmlm.ElementStart(xmlm.Tag(xmlm.Name(_, "station"), _)), input)) ->
-      case parse_station(input, 0, default_station(), True) {
-        Ok(#(Some(station), input)) ->
-          parse_stations(input, [station, ..stations])
-        Ok(#(None, input)) -> parse_stations(input, stations)
-        Error(error) -> Error(error)
-      }
-    Ok(#(xmlm.Data(_), input)) -> parse_stations(input, stations)
-    Ok(#(xmlm.ElementEnd, _)) -> Ok(stations)
-    Ok(_) -> Error("Expected opening station tag")
-    Error(error) -> Error(xmlm.input_error_to_string(error))
-  }
-}
-
-fn default_station() -> Station {
-  Station(name: "", longitude: 0.0, latitude: 0.0, lines: [])
-}
-
-fn parse_station(
-  input: xmlm.Input,
-  nesting: Int,
-  station: Station,
-  is_tube: Bool,
-) -> Result(#(Option(Station), xmlm.Input), String) {
-  case xmlm.signal(input) {
-    Ok(#(xmlm.ElementStart(xmlm.Tag(xmlm.Name(_, "name"), _)), input))
-      if nesting == 0
-    -> {
-      case parse_text(input) {
-        Ok(#(name, input)) ->
-          parse_station(input, nesting, Station(..station, name:), is_tube)
-        Error(error) -> Error(error)
-      }
-    }
-
-    Ok(#(xmlm.ElementStart(xmlm.Tag(xmlm.Name(_, "coordinates"), _)), input)) -> {
-      case parse_text(input) {
-        Ok(#(text, input)) -> {
-          let assert [longitude, latitude, ..] = string.split(text, ",")
-
-          let assert Ok(longitude) = float.parse(normalise(longitude))
-          let assert Ok(latitude) = float.parse(normalise(latitude))
-          parse_station(
-            input,
-            nesting,
-            Station(..station, longitude:, latitude:),
-            is_tube,
-          )
-        }
-        Error(error) -> Error(error)
-      }
-    }
-
-    Ok(#(xmlm.ElementStart(xmlm.Tag(xmlm.Name(_, "styleUrl"), _)), input)) -> {
-      case parse_text(input) {
-        Ok(#("#tubeStyle", input)) ->
-          parse_station(input, nesting, station, is_tube)
-        Ok(#(_, input)) -> parse_station(input, nesting, station, False)
-        Error(error) -> Error(error)
-      }
-    }
-
-    Ok(#(xmlm.ElementStart(xmlm.Tag(xmlm.Name(_, "servingLine"), _)), input)) -> {
-      case parse_text(input) {
-        Ok(#(line, input)) -> {
-          case parse_line(line) {
-            Ok(line) ->
-              parse_station(
-                input,
-                nesting,
-                Station(..station, lines: [line, ..station.lines]),
-                is_tube,
-              )
-            _ -> parse_station(input, nesting, station, is_tube)
-          }
-        }
-        Error(error) -> Error(error)
-      }
-    }
-
-    Ok(#(xmlm.ElementEnd, input)) if nesting == 0 ->
-      case is_tube {
-        True -> Ok(#(Some(station), input))
-        False -> Ok(#(None, input))
-      }
-    Ok(#(xmlm.ElementEnd, input)) ->
-      parse_station(input, nesting - 1, station, is_tube)
-    Ok(#(xmlm.ElementStart(_), input)) ->
-      parse_station(input, nesting + 1, station, is_tube)
-    Ok(#(_, input)) -> parse_station(input, nesting, station, is_tube)
-    Error(error) -> Error(xmlm.input_error_to_string(error))
-  }
-}
-
-fn parse_line(line: String) -> Result(station.Line, Nil) {
-  case line {
-    "Bakerloo" -> Ok(station.Bakerloo)
-    "Central" -> Ok(station.Central)
-    "Circle" -> Ok(station.Circle)
-    "District" -> Ok(station.District)
-    "Hammersmith & City" -> Ok(station.HammersmithAndCity)
-    "Jubilee" -> Ok(station.Jubilee)
-    "Metropolitan" -> Ok(station.Metropolitan)
-    "Northern" -> Ok(station.Northern)
-    "Piccadilly" -> Ok(station.Piccadilly)
-    "Victoria" -> Ok(station.Victoria)
-    "Waterloo & City" -> Ok(station.WaterlooAndCity)
-    _ -> Error(Nil)
-  }
-}
-
-fn parse_text(input: xmlm.Input) -> Result(#(String, xmlm.Input), String) {
-  case xmlm.signal(input) {
-    Ok(#(xmlm.Data(text), input)) ->
-      case xmlm.signal(input) {
-        Ok(#(xmlm.ElementEnd, input)) -> Ok(#(string.trim(text), input))
-        Ok(_) -> Error("Expected closing tag")
-        Error(error) -> Error(xmlm.input_error_to_string(error))
-      }
-    Ok(_) -> Error("Expected text")
-    Error(error) -> Error(xmlm.input_error_to_string(error))
-  }
-}
-
-fn strip_preamble(input: xmlm.Input) -> Result(xmlm.Input, String) {
-  case xmlm.signal(input) {
-    Ok(#(xmlm.ElementStart(xmlm.Tag(xmlm.Name(_, "stations"), _)), input)) ->
-      Ok(input)
-    Ok(#(_, input)) -> strip_preamble(input)
-    Error(error) -> Error(xmlm.input_error_to_string(error))
-  }
-}
-
-fn strip_dtd(input: xmlm.Input) -> Result(xmlm.Input, String) {
-  case xmlm.signal(input) {
-    Error(e) -> Error(xmlm.input_error_to_string(e))
-    Ok(#(xmlm.Dtd(_), input)) -> Ok(input)
-    Ok(#(signal, _)) -> Error("Expected dtd, got " <> string.inspect(signal))
-  }
-}
-
-fn normalise(float: String) -> String {
-  case float {
-    "." <> float -> "0." <> float
-    "-." <> float -> "-0." <> float
-    _ -> float
   }
 }

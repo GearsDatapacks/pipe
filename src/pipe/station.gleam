@@ -16,6 +16,20 @@ pub type Line {
   WaterlooAndCity
 }
 
+pub const lines = [
+  Bakerloo,
+  Central,
+  Circle,
+  District,
+  HammersmithAndCity,
+  Jubilee,
+  Metropolitan,
+  Northern,
+  Piccadilly,
+  Victoria,
+  WaterlooAndCity,
+]
+
 pub fn line_colour(line: Line) -> String {
   case line {
     Bakerloo -> "#AE6118"
