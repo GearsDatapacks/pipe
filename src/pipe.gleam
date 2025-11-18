@@ -111,10 +111,19 @@ fn view(model: Model) -> element.Element(Msg) {
   ]
 
   let children = case
-    list.find_map(generated.stations, hovered_station_label(_, model))
+    list.filter_map(generated.stations, hovered_station_label(_, model))
   {
-    Ok(label) -> list.append(children, [label])
-    Error(_) -> children
+    [] -> children
+    [label, ..labels] -> {
+      let label =
+        list.fold(labels, label, fn(a, b) {
+          case a.1 <. b.1 {
+            True -> a
+            False -> b
+          }
+        }).0
+      list.append(children, [label])
+    }
   }
 
   svg.svg(
@@ -136,17 +145,21 @@ const station_width = 5
 
 const margin = 10
 
+fn squared(x: Int) -> Int {
+  x * x
+}
+
 fn hovered_station_label(
   station: Station,
   model: Model,
-) -> Result(element.Element(Msg), Nil) {
+) -> Result(#(element.Element(Msg), Float), Nil) {
   let x = longitude_to_x(station.longitude)
   let y = latitude_to_y(station.latitude)
 
-  let x_equal = { x - margin } < model.mouse_x && { x + margin } > model.mouse_x
-  let y_equal = { y - margin } < model.mouse_y && { y + margin } > model.mouse_y
+  let assert Ok(distance) =
+    int.square_root(squared(x - model.mouse_x) + squared(y - model.mouse_y))
 
-  let hovering = x_equal && y_equal
+  let hovering = distance <. int.to_float(station_width + 2)
 
   case hovering {
     False -> Error(Nil)
@@ -194,7 +207,7 @@ fn hovered_station_label(
           attribute("stroke", "black"),
         ])
 
-      Ok(svg.g([], [box, text]))
+      Ok(#(svg.g([], [box, text]), distance))
     }
   }
 }
