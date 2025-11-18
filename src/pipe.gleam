@@ -69,6 +69,31 @@ fn view(model: Model) -> element.Element(Msg) {
       svg.linear_gradient([attribute.id(name)], stops)
     })
 
+  let lines =
+    list.flat_map(generated.lines, fn(line) {
+      let colour = station.line_colour(line.line)
+
+      list.flat_map(line.branches, fn(branch) {
+        list.map(list.window_by_2(branch), fn(pair) {
+          let #(from, to) = pair
+
+          let x1 = int.to_string(longitude_to_x(from.longitude))
+          let y1 = int.to_string(latitude_to_y(from.latitude))
+          let x2 = int.to_string(longitude_to_x(to.longitude))
+          let y2 = int.to_string(latitude_to_y(to.latitude))
+
+          svg.line([
+            attribute("x1", x1),
+            attribute("y1", y1),
+            attribute("x2", x2),
+            attribute("y2", y2),
+            attribute("stroke", colour),
+            attribute("stroke-width", "2"),
+          ])
+        })
+      })
+    })
+
   let children = [
     svg.text(
       [attribute("y", int.to_string(height - 50))],
@@ -82,7 +107,7 @@ fn view(model: Model) -> element.Element(Msg) {
       [attribute("y", int.to_string(height - 10))],
       "and Geomni UK Map data © and database rights [2019]",
     ),
-    ..list.append(gradients, stations)
+    ..list.flatten([gradients, lines, stations])
   ]
 
   let children = case

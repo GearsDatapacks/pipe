@@ -45,3 +45,11 @@ pub fn line_colour(line: Line) -> String {
     WaterlooAndCity -> "#70C3CE"
   }
 }
+
+pub type Point {
+  Point(longitude: Float, latitude: Float)
+}
+
+pub type LineInfo {
+  LineInfo(line: Line, branches: List(List(Point)))
+}

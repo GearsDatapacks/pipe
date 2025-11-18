@@ -7,6 +7,7 @@ import gleam/javascript/promise.{type Promise}
 import gleam/json
 import gleam/list
 import gleam/pair
+import gleam/result
 import gleam/string
 import pipe/station.{type Station, Station}
 import simplifile as file
@@ -79,11 +80,31 @@ fn strip_suffix(name: String) -> String {
 }
 
 pub fn main() {
-  use #(stations, _lines) <- promise.map(collect_stations_and_lines(
+  use #(stations, lines) <- promise.map(collect_stations_and_lines(
     station.lines,
     dict.new(),
     dict.new(),
   ))
+
+  let lines =
+    dict.map_values(lines, fn(_, branches) {
+      list.map(
+        branches,
+        list.filter_map(_, fn(id) {
+          dict.get(stations, id)
+          |> result.map(fn(station) {
+            station.Point(
+              longitude: station.longitude,
+              latitude: station.latitude,
+            )
+          })
+        }),
+      )
+    })
+    |> dict.to_list
+
+  let stations =
+    list.sort(dict.values(stations), fn(a, b) { string.compare(a.name, b.name) })
 
   let min_longitude =
     stations
@@ -115,13 +136,43 @@ pub fn main() {
       <> "])"
     })
 
+  let line_strings =
+    list.map(lines, fn(pair) {
+      let #(line, branches) = pair
+      let branch_strings =
+        list.map(branches, fn(branch) {
+          "["
+          <> string.join(
+            list.map(branch, fn(point) {
+              "Point("
+              <> float.to_string(point.longitude)
+              <> ", "
+              <> float.to_string(point.latitude)
+              <> ")"
+            }),
+            ", ",
+          )
+          <> "]"
+        })
+
+      "LineInfo("
+      <> line_to_string(line)
+      <> ", ["
+      <> string.join(branch_strings, ", ")
+      <> "])"
+    })
+
   let file = "import pipe/station.{
-  Bakerloo, Central, Circle, District, HammersmithAndCity, Jubilee, Metropolitan,
-  Northern, Piccadilly, Station, Victoria, WaterlooAndCity,
+  Bakerloo, Central, Circle, District, HammersmithAndCity, Jubilee, LineInfo,
+  Metropolitan, Northern, Piccadilly, Point, Station, Victoria, WaterlooAndCity,
 }
 
 pub const stations = [
   " <> string.join(station_strings, ",\n  ") <> ",
+]
+
+pub const lines = [
+  " <> string.join(line_strings, ",\n  ") <> ",
 ]
 
 pub const min_longitude = " <> float.to_string(min_longitude) <> "
@@ -140,15 +191,9 @@ fn collect_stations_and_lines(
   lines: List(station.Line),
   stations: Dict(String, Station),
   out: Dict(station.Line, List(List(String))),
-) -> Promise(#(List(Station), Dict(station.Line, List(List(String))))) {
+) -> Promise(#(Dict(String, Station), Dict(station.Line, List(List(String))))) {
   case lines {
-    [] ->
-      promise.resolve(#(
-        list.sort(dict.values(stations), fn(a, b) {
-          string.compare(a.name, b.name)
-        }),
-        out,
-      ))
+    [] -> promise.resolve(#(stations, out))
     [line, ..lines] -> {
       use info <- promise.await(line_info(line))
 
