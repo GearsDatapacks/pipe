@@ -3,6 +3,7 @@ import gleam/dynamic/decode
 import gleam/float
 import gleam/int
 import gleam/list
+import gleam/option
 import gleam/string
 import lustre
 import lustre/attribute.{attribute}
@@ -44,6 +45,46 @@ fn view(model: Model) -> element.Element(Msg) {
   let #(gradients, stations) =
     list.map_fold(generated.stations, dict.new(), station)
 
+  let line_segments =
+    list.fold(generated.lines, dict.new(), fn(lines, line) {
+      list.fold(line.branches, lines, fn(lines, branch) {
+        list.fold(list.window_by_2(branch), lines, fn(lines, pair) {
+          let colour = station.line_colour(line.line)
+          let pair = order_pair(pair)
+          dict.upsert(lines, pair, fn(lines) {
+            case lines {
+              option.None -> [colour]
+              option.Some(lines) -> [colour, ..lines]
+            }
+          })
+        })
+      })
+    })
+
+  let #(gradients, lines) =
+    list.map_fold(dict.to_list(line_segments), gradients, fn(gradients, pair) {
+      let #(#(from, to), lines) = pair
+
+      let x1 = int.to_string(longitude_to_x(from.longitude))
+      let y1 = int.to_string(latitude_to_y(from.latitude))
+      let x2 = int.to_string(longitude_to_x(to.longitude))
+      let y2 = int.to_string(latitude_to_y(to.latitude))
+
+      let #(gradients, colour) = get_colour(lines, gradients)
+
+      #(
+        gradients,
+        svg.line([
+          attribute("x1", x1),
+          attribute("y1", y1),
+          attribute("x2", x2),
+          attribute("y2", y2),
+          attribute("stroke", colour),
+          attribute("stroke-width", "2"),
+        ]),
+      )
+    })
+
   let gradients =
     gradients
     |> dict.to_list
@@ -67,31 +108,6 @@ fn view(model: Model) -> element.Element(Msg) {
         |> list.flatten
 
       svg.linear_gradient([attribute.id(name)], stops)
-    })
-
-  let lines =
-    list.flat_map(generated.lines, fn(line) {
-      let colour = station.line_colour(line.line)
-
-      list.flat_map(line.branches, fn(branch) {
-        list.map(list.window_by_2(branch), fn(pair) {
-          let #(from, to) = pair
-
-          let x1 = int.to_string(longitude_to_x(from.longitude))
-          let y1 = int.to_string(latitude_to_y(from.latitude))
-          let x2 = int.to_string(longitude_to_x(to.longitude))
-          let y2 = int.to_string(latitude_to_y(to.latitude))
-
-          svg.line([
-            attribute("x1", x1),
-            attribute("y1", y1),
-            attribute("x2", x2),
-            attribute("y2", y2),
-            attribute("stroke", colour),
-            attribute("stroke-width", "2"),
-          ])
-        })
-      })
     })
 
   let children = [
@@ -139,6 +155,15 @@ fn view(model: Model) -> element.Element(Msg) {
     ],
     children,
   )
+}
+
+fn order_pair(
+  pair: #(station.Point, station.Point),
+) -> #(station.Point, station.Point) {
+  case { pair.0 }.latitude <. { pair.1 }.latitude {
+    True -> pair
+    False -> #(pair.1, pair.0)
+  }
 }
 
 const station_width = 5
@@ -223,19 +248,7 @@ fn station(
     station.lines
     |> list.map(station.line_colour)
 
-  let #(gradients, colour) = case colours {
-    [] -> #(gradients, "#d0d0d0")
-    [colour] -> #(gradients, colour)
-    _ -> {
-      case dict.get(gradients, colours) {
-        Ok(name) -> #(gradients, "url(\"#" <> name <> "\")")
-        Error(Nil) -> {
-          let name = "gradient" <> int.to_string(dict.size(gradients))
-          #(dict.insert(gradients, colours, name), "url(\"#" <> name <> "\")")
-        }
-      }
-    }
-  }
+  let #(gradients, colour) = get_colour(colours, gradients)
 
   #(
     gradients,
@@ -246,6 +259,27 @@ fn station(
       attribute("fill", colour),
     ]),
   )
+}
+
+fn get_colour(
+  colours: List(String),
+  gradients: Dict(List(String), String),
+) -> #(Dict(List(String), String), String) {
+  let colours = list.sort(colours, string.compare)
+
+  let #(gradients, colour) = case colours {
+    [] -> #(gradients, "#d0d0d0")
+    [colour] -> #(gradients, colour)
+    _ ->
+      case dict.get(gradients, colours) {
+        Ok(name) -> #(gradients, "url(\"#" <> name <> "\")")
+        Error(Nil) -> {
+          let name = "gradient" <> int.to_string(dict.size(gradients))
+          #(dict.insert(gradients, colours, name), "url(\"#" <> name <> "\")")
+        }
+      }
+  }
+  #(gradients, colour)
 }
 
 fn longitude_to_x(longitude: Float) -> Int {
