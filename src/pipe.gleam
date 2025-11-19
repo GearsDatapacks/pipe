@@ -3,7 +3,7 @@ import gleam/dynamic/decode
 import gleam/float
 import gleam/int
 import gleam/list
-import gleam/option
+import gleam/option.{type Option, None, Some}
 import gleam/string
 import lustre
 import lustre/attribute.{attribute}
@@ -21,20 +21,64 @@ pub fn main() {
 }
 
 fn init(_flags) {
-  Model(-100, -100)
+  Model(
+    mouse_x: -100,
+    mouse_y: -100,
+    view_box: None,
+    mouse_pressed: None,
+    station: None,
+  )
 }
 
 type Msg {
   MouseMoved(x: Int, y: Int)
+  MousePressed
+  MouseReleased
+  UserHoveredStation(Station)
+  UserLeftStation
 }
 
 type Model {
-  Model(mouse_x: Int, mouse_y: Int)
+  Model(
+    mouse_x: Int,
+    mouse_y: Int,
+    view_box: Option(ViewBox),
+    mouse_pressed: Option(#(Int, Int)),
+    station: Option(Station),
+  )
 }
 
-fn update(_model: Model, msg: Msg) -> Model {
+type ViewBox {
+  ViewBox(x: Int, y: Int, width: Int, height: Int)
+}
+
+fn update(model: Model, msg: Msg) -> Model {
   case msg {
-    MouseMoved(x:, y:) -> Model(mouse_x: x, mouse_y: y)
+    MouseMoved(x:, y:) -> Model(..model, mouse_x: x, mouse_y: y)
+    MousePressed ->
+      Model(..model, mouse_pressed: Some(#(model.mouse_x, model.mouse_y)))
+    MouseReleased -> {
+      case model.mouse_pressed {
+        None -> model
+        Some(#(x, y)) if x == model.mouse_x && y == model.mouse_y ->
+          Model(..model, mouse_pressed: None, view_box: None)
+        Some(#(x, y)) -> {
+          let x = int.min(x, model.mouse_x) - margin
+          let y = int.min(y, model.mouse_y) - margin
+
+          let width = int.absolute_value(x - model.mouse_x)
+          let height = int.absolute_value(y - model.mouse_y)
+
+          Model(
+            ..model,
+            mouse_pressed: None,
+            view_box: Some(ViewBox(x:, y:, width:, height:)),
+          )
+        }
+      }
+    }
+    UserHoveredStation(station) -> Model(..model, station: Some(station))
+    UserLeftStation -> Model(..model, station: None)
   }
 }
 
@@ -53,8 +97,8 @@ fn view(model: Model) -> element.Element(Msg) {
           let pair = order_pair(pair)
           dict.upsert(lines, pair, fn(lines) {
             case lines {
-              option.None -> [colour]
-              option.Some(lines) -> [colour, ..lines]
+              None -> [colour]
+              Some(lines) -> [colour, ..lines]
             }
           })
         })
@@ -142,6 +186,24 @@ fn view(model: Model) -> element.Element(Msg) {
     }
   }
 
+  let view_box = case model.view_box {
+    None -> []
+    Some(ViewBox(x:, y:, width:, height:)) -> {
+      [
+        attribute(
+          "viewBox",
+          int.to_string(x)
+            <> " "
+            <> int.to_string(y)
+            <> " "
+            <> int.to_string(width)
+            <> " "
+            <> int.to_string(height),
+        ),
+      ]
+    }
+  }
+
   svg.svg(
     [
       attribute.width(width),
@@ -152,6 +214,9 @@ fn view(model: Model) -> element.Element(Msg) {
 
         decode.success(MouseMoved(x - margin, y - margin))
       }),
+      event.on_mouse_down(MousePressed),
+      event.on_mouse_up(MouseReleased),
+      ..view_box
     ],
     children,
   )
@@ -170,10 +235,6 @@ const station_width = 5
 
 const margin = 10
 
-fn squared(x: Int) -> Int {
-  x * x
-}
-
 fn hovered_station_label(
   station: Station,
   model: Model,
@@ -181,8 +242,16 @@ fn hovered_station_label(
   let x = longitude_to_x(station.longitude)
   let y = latitude_to_y(station.latitude)
 
+  let #(mouse_x, mouse_y) = case model.view_box {
+    None -> #(model.mouse_x, model.mouse_y)
+    Some(ViewBox(x:, y:, width:, height:)) -> #(
+      { model.mouse_x * width / svg_width() } + x,
+      { model.mouse_y * height / svg_height() } + y,
+    )
+  }
+
   let assert Ok(distance) =
-    int.square_root(squared(x - model.mouse_x) + squared(y - model.mouse_y))
+    int.square_root(squared(x - mouse_x) + squared(y - mouse_y))
 
   let hovering = distance <. int.to_float(station_width + 2)
 
@@ -237,6 +306,10 @@ fn hovered_station_label(
   }
 }
 
+fn squared(x: Int) -> Int {
+  x * x
+}
+
 fn station(
   gradients: Dict(List(String), String),
   station: Station,
@@ -257,6 +330,8 @@ fn station(
       attribute("cy", int.to_string(y)),
       attribute("r", int.to_string(station_width)),
       attribute("fill", colour),
+      event.on_mouse_enter(UserHoveredStation(station)),
+      event.on_mouse_out(UserLeftStation),
     ]),
   )
 }
