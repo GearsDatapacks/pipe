@@ -300,20 +300,23 @@ fn hovered_station_label(
       let box_x = x - 7
       let box_y = y - 15
 
-      let #(x, box_x) = case box_x <= 0 {
+      let #(min_x, min_y, max_x) = case model.view_box {
+        None -> #(0, 0, svg_width())
+        Some(box) -> #(box.x, box.y, box.x + box.width)
+      }
+      let #(x, box_x) = case box_x <= min_x {
         False -> #(x, box_x)
-        True -> #(8, 1)
+        True -> #(min_x + 8, min_x + 1)
       }
 
-      let svg_width = svg_width()
-      let #(x, box_x) = case box_x + width + 14 >= svg_width {
+      let #(x, box_x) = case box_x + width + 14 >= max_x {
         False -> #(x, box_x)
-        True -> #(svg_width - width - 8, svg_width - width - 15)
+        True -> #(max_x - width - 8, max_x - width - 15)
       }
 
-      let #(y, box_y) = case box_y <= 0 {
+      let #(y, box_y) = case box_y <= min_y {
         False -> #(y, box_y)
-        True -> #(16, 1)
+        True -> #(min_y + 16, min_y + 1)
       }
 
       let text =
