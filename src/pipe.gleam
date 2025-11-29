@@ -4,6 +4,7 @@ import gleam/float
 import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
+import gleam/order
 import gleam/string
 import lustre
 import lustre/attribute.{attribute}
@@ -72,13 +73,48 @@ fn update(model: Model, msg: Msg) -> Model {
           Model(
             ..model,
             mouse_pressed: None,
-            view_box: Some(ViewBox(x:, y:, width:, height:)),
+            view_box: Some(calculate_view_box(x, y, width, height)),
           )
         }
       }
     }
     UserHoveredStation(station) -> Model(..model, station: Some(station))
     UserLeftStation -> Model(..model, station: None)
+  }
+}
+
+fn calculate_view_box(x: Int, y: Int, width: Int, height: Int) -> ViewBox {
+  let expected_aspect_ratio =
+    int.to_float(svg_width()) /. int.to_float(svg_height())
+
+  let width_f = int.to_float(width)
+  let height_f = int.to_float(height)
+  let actual_aspect_ratio = width_f /. height_f
+
+  case float.compare(actual_aspect_ratio, expected_aspect_ratio) {
+    order.Eq -> ViewBox(x:, y:, width:, height:)
+    // The selection is too wide, so we need to increase the height
+    order.Gt -> {
+      let new_height =
+        float.round(height_f *. actual_aspect_ratio /. expected_aspect_ratio)
+
+      let new_y = y - { new_height - height } / 2
+
+      ViewBox(x:, y: new_y, width:, height: new_height)
+    }
+    // The selection is too tall, so we need to increase the width
+    order.Lt -> {
+      let new_width =
+        float.round(width_f *. expected_aspect_ratio /. actual_aspect_ratio)
+
+      let new_x = x - { new_width - width } / 2
+
+      ViewBox(x: new_x, y:, width: new_width, height:)
+    }
+    // 100x50
+    // 10x10
+    // 2
+    // 1
   }
 }
 
