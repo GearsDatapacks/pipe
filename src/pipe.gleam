@@ -22,21 +22,13 @@ pub fn main() {
 }
 
 fn init(_flags) {
-  Model(
-    mouse_x: -100,
-    mouse_y: -100,
-    view_box: None,
-    mouse_pressed: None,
-    station: None,
-  )
+  Model(mouse_x: -100, mouse_y: -100, view_box: None, mouse_pressed: None)
 }
 
 type Msg {
   MouseMoved(x: Int, y: Int)
   MousePressed
   MouseReleased
-  UserHoveredStation(Station)
-  UserLeftStation
 }
 
 type Model {
@@ -45,7 +37,6 @@ type Model {
     mouse_y: Int,
     view_box: Option(ViewBox),
     mouse_pressed: Option(#(Int, Int)),
-    station: Option(Station),
   )
 }
 
@@ -78,8 +69,6 @@ fn update(model: Model, msg: Msg) -> Model {
         }
       }
     }
-    UserHoveredStation(station) -> Model(..model, station: Some(station))
-    UserLeftStation -> Model(..model, station: None)
   }
 }
 
@@ -369,8 +358,6 @@ fn station(
       attribute("cy", int.to_string(y)),
       attribute("r", int.to_string(station_width)),
       attribute("fill", colour),
-      event.on_mouse_enter(UserHoveredStation(station)),
-      event.on_mouse_out(UserLeftStation),
     ]),
   )
 }
