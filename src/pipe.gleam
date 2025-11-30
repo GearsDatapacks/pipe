@@ -58,8 +58,13 @@ fn update(model: Model, msg: Msg) -> Model {
           let x = int.min(x, model.mouse_x) - margin
           let y = int.min(y, model.mouse_y) - margin
 
-          let width = int.absolute_value(x - model.mouse_x)
-          let height = int.absolute_value(y - model.mouse_y)
+          let #(x, y) = transform_coordinates(x, y, model.view_box)
+
+          let #(mouse_x, mouse_y) =
+            transform_coordinates(model.mouse_x, model.mouse_y, model.view_box)
+
+          let width = int.absolute_value(x - mouse_x)
+          let height = int.absolute_value(y - mouse_y)
 
           Model(
             ..model,
@@ -100,10 +105,6 @@ fn calculate_view_box(x: Int, y: Int, width: Int, height: Int) -> ViewBox {
 
       ViewBox(x: new_x, y:, width: new_width, height:)
     }
-    // 100x50
-    // 10x10
-    // 2
-    // 1
   }
 }
 
@@ -267,13 +268,8 @@ fn hovered_station_label(
   let x = longitude_to_x(station.longitude)
   let y = latitude_to_y(station.latitude)
 
-  let #(mouse_x, mouse_y) = case model.view_box {
-    None -> #(model.mouse_x, model.mouse_y)
-    Some(ViewBox(x:, y:, width:, height:)) -> #(
-      { model.mouse_x * width / svg_width() } + x,
-      { model.mouse_y * height / svg_height() } + y,
-    )
-  }
+  let #(mouse_x, mouse_y) =
+    transform_coordinates(model.mouse_x, model.mouse_y, model.view_box)
 
   let assert Ok(distance) =
     int.square_root(squared(x - mouse_x) + squared(y - mouse_y))
@@ -331,6 +327,20 @@ fn hovered_station_label(
 
       Ok(#(svg.g([], [box, text]), distance))
     }
+  }
+}
+
+fn transform_coordinates(
+  x1: Int,
+  y1: Int,
+  view_box: Option(ViewBox),
+) -> #(Int, Int) {
+  case view_box {
+    None -> #(x1, y1)
+    Some(ViewBox(x:, y:, width:, height:)) -> #(
+      { x1 * width / svg_width() } + x,
+      { y1 * height / svg_height() } + y,
+    )
   }
 }
 
