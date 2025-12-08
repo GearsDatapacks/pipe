@@ -108,12 +108,31 @@ fn calculate_view_box(x: Int, y: Int, width: Int, height: Int) -> ViewBox {
   }
 }
 
+type Gradient {
+  Gradient(
+    colours: List(String),
+    id: String,
+    x1: String,
+    y1: String,
+    x2: String,
+    y2: String,
+  )
+}
+
+type Gradients {
+  Gradients(
+    lines: List(Gradient),
+    stations: Dict(List(String), String),
+    id: Int,
+  )
+}
+
 fn view(model: Model) -> element.Element(Msg) {
   let width = svg_width()
   let height = svg_height()
 
   let #(gradients, stations) =
-    list.map_fold(generated.stations, dict.new(), station)
+    list.map_fold(generated.stations, Gradients([], dict.new(), 0), station)
 
   let line_segments =
     list.fold(generated.lines, dict.new(), fn(lines, line) {
@@ -140,7 +159,8 @@ fn view(model: Model) -> element.Element(Msg) {
       let x2 = int.to_string(longitude_to_x(to.longitude))
       let y2 = int.to_string(latitude_to_y(to.latitude))
 
-      let #(gradients, colour) = get_colour(lines, gradients)
+      let #(gradients, colour) =
+        get_colour(lines, gradients, Some(#(x1, y1, x2, y2)))
 
       #(
         gradients,
@@ -155,8 +175,8 @@ fn view(model: Model) -> element.Element(Msg) {
       )
     })
 
-  let gradients =
-    gradients
+  let station_gradients =
+    gradients.stations
     |> dict.to_list
     |> list.map(fn(pair) {
       let #(colours, name) = pair
@@ -177,7 +197,46 @@ fn view(model: Model) -> element.Element(Msg) {
         })
         |> list.flatten
 
-      svg.linear_gradient([attribute.id(name)], stops)
+      svg.linear_gradient(
+        [
+          attribute.id(name),
+        ],
+        stops,
+      )
+    })
+
+  let line_gradients =
+    gradients.lines
+    |> list.map(fn(gradient) {
+      let Gradient(colours:, id:, x1:, y1:, x2:, y2:) = gradient
+
+      let percentage = 100 / list.length(colours)
+      let stops =
+        list.index_map(colours, fn(colour, i) {
+          [
+            svg.stop([
+              attribute("offset", int.to_string(percentage * i) <> "%"),
+              attribute.styles([#("stop-color", colour)]),
+            ]),
+            svg.stop([
+              attribute("offset", int.to_string(percentage * { i + 1 }) <> "%"),
+              attribute.styles([#("stop-color", colour)]),
+            ]),
+          ]
+        })
+        |> list.flatten
+
+      svg.linear_gradient(
+        [
+          attribute.id(id),
+          attribute("gradientUnits", "userSpaceOnUse"),
+          attribute("x1", x1),
+          attribute("y1", y1),
+          attribute("x2", x2),
+          attribute("y2", y2),
+        ],
+        stops,
+      )
     })
 
   let children = [
@@ -193,7 +252,7 @@ fn view(model: Model) -> element.Element(Msg) {
       [attribute("y", int.to_string(height - 10))],
       "and Geomni UK Map data © and database rights [2019]",
     ),
-    ..list.flatten([gradients, lines, stations])
+    ..list.flatten([line_gradients, station_gradients, lines, stations])
   ]
 
   let children = case
@@ -349,9 +408,9 @@ fn squared(x: Int) -> Int {
 }
 
 fn station(
-  gradients: Dict(List(String), String),
+  gradients: Gradients,
   station: Station,
-) -> #(Dict(List(String), String), element.Element(Msg)) {
+) -> #(Gradients, element.Element(Msg)) {
   let x = longitude_to_x(station.longitude)
   let y = latitude_to_y(station.latitude)
 
@@ -359,7 +418,7 @@ fn station(
     station.lines
     |> list.map(station.line_colour)
 
-  let #(gradients, colour) = get_colour(colours, gradients)
+  let #(gradients, colour) = get_colour(colours, gradients, None)
 
   #(
     gradients,
@@ -374,21 +433,48 @@ fn station(
 
 fn get_colour(
   colours: List(String),
-  gradients: Dict(List(String), String),
-) -> #(Dict(List(String), String), String) {
-  let colours = list.sort(colours, string.compare)
-
+  gradients: Gradients,
+  coords: Option(#(String, String, String, String)),
+) -> #(Gradients, String) {
   let #(gradients, colour) = case colours {
     [] -> #(gradients, "#d0d0d0")
     [colour] -> #(gradients, colour)
-    _ ->
-      case dict.get(gradients, colours) {
-        Ok(name) -> #(gradients, "url(\"#" <> name <> "\")")
-        Error(Nil) -> {
-          let name = "gradient" <> int.to_string(dict.size(gradients))
-          #(dict.insert(gradients, colours, name), "url(\"#" <> name <> "\")")
+    _ -> {
+      let colours = list.sort(colours, string.compare)
+
+      case dict.get(gradients.stations, colours), coords {
+        Ok(name), None -> #(gradients, "url(\"#" <> name <> "\")")
+        Error(_), None -> {
+          let name = "gradient" <> int.to_string(gradients.id)
+          let new_id = gradients.id + 1
+
+          #(
+            Gradients(
+              ..gradients,
+              stations: dict.insert(gradients.stations, colours, name),
+              id: new_id,
+            ),
+            "url(\"#" <> name <> "\")",
+          )
+        }
+        _, Some(#(x1, y1, x2, y2)) -> {
+          let name = "gradient" <> int.to_string(gradients.id)
+          let new_id = gradients.id + 1
+
+          let gradient =
+            Gradient(colours: colours, id: name, x1:, y1:, x2:, y2:)
+
+          #(
+            Gradients(
+              ..gradients,
+              lines: [gradient, ..gradients.lines],
+              id: new_id,
+            ),
+            "url(\"#" <> name <> "\")",
+          )
         }
       }
+    }
   }
   #(gradients, colour)
 }
