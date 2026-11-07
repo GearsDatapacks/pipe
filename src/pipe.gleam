@@ -1,3 +1,4 @@
+import gleam/bool
 import gleam/dict.{type Dict}
 import gleam/dynamic/decode
 import gleam/float
@@ -5,6 +6,7 @@ import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/order
+import gleam/set.{type Set}
 import gleam/string
 import lustre
 import lustre/attribute.{attribute}
@@ -22,13 +24,25 @@ pub fn main() {
 }
 
 fn init(_flags) {
-  Model(mouse_x: -100, mouse_y: -100, view_box: None, mouse_pressed: None)
+  Model(
+    mouse_x: -100,
+    mouse_y: -100,
+    view_box: None,
+    mouse_pressed: None,
+    state: Map,
+  )
 }
 
 type Msg {
   MouseMoved(x: Int, y: Int)
   MousePressed
   MouseReleased
+  UserStartedLabelGame
+  UserStoppedLabelGame
+  UserSelectedStation(name: String)
+  UserClickedHint
+  UserClickedSkip
+  UserClickedReveal
 }
 
 type Model {
@@ -37,7 +51,27 @@ type Model {
     mouse_y: Int,
     view_box: Option(ViewBox),
     mouse_pressed: Option(#(Int, Int)),
+    state: State,
   )
+}
+
+type State {
+  Map
+  LabelGame(
+    to_guess: List(Station),
+    next_guess: Station,
+    guessed: Set(String),
+    status: GameStatus,
+  )
+}
+
+type GameStatus {
+  Start
+  Correct
+  Incorrect
+  Hint(line: station.Line)
+  Revealed(station: String)
+  End
 }
 
 type ViewBox {
@@ -74,6 +108,82 @@ fn update(model: Model, msg: Msg) -> Model {
         }
       }
     }
+
+    UserStartedLabelGame -> {
+      let assert [next_guess, ..to_guess] = list.shuffle(generated.stations)
+      Model(
+        ..model,
+        state: LabelGame(
+          to_guess:,
+          next_guess:,
+          guessed: set.new(),
+          status: Start,
+        ),
+      )
+    }
+    UserStoppedLabelGame -> Model(..model, state: Map)
+
+    UserSelectedStation(name:) ->
+      case model.state {
+        Map -> model
+        LabelGame(to_guess: [next, ..to_guess], next_guess:, guessed:, ..)
+          if name == next_guess.name
+        ->
+          Model(
+            ..model,
+            state: LabelGame(
+              to_guess:,
+              next_guess: next,
+              guessed: set.insert(guessed, name),
+              status: Correct,
+            ),
+          )
+        LabelGame(to_guess: [], next_guess:, ..) as state
+          if name == next_guess.name
+        -> Model(..model, state: LabelGame(..state, status: End))
+        LabelGame(..) as state ->
+          Model(..model, state: LabelGame(..state, status: Incorrect))
+      }
+
+    UserClickedHint ->
+      case model.state {
+        Map -> model
+        LabelGame(next_guess:, ..) as state -> {
+          let assert [line, ..] = list.shuffle(next_guess.lines)
+          Model(..model, state: LabelGame(..state, status: Hint(line:)))
+        }
+      }
+
+    UserClickedSkip ->
+      case model.state {
+        Map -> model
+        LabelGame(to_guess: [], ..) -> model
+        LabelGame(to_guess: [next, ..to_guess], next_guess:, ..) as state ->
+          Model(
+            ..model,
+            state: LabelGame(
+              ..state,
+              next_guess: next,
+              to_guess: list.shuffle([next_guess, ..to_guess]),
+            ),
+          )
+      }
+
+    UserClickedReveal ->
+      case model.state {
+        Map -> model
+        LabelGame(to_guess: [], ..) -> model
+        LabelGame(to_guess: [next, ..to_guess], next_guess:, guessed:, ..) ->
+          Model(
+            ..model,
+            state: LabelGame(
+              next_guess: next,
+              to_guess:,
+              guessed: set.insert(guessed, next_guess.name),
+              status: Revealed(next_guess.name),
+            ),
+          )
+      }
   }
 }
 
@@ -289,6 +399,126 @@ fn view(model: Model) -> element.Element(Msg) {
     }
   }
 
+  let children = case model.state {
+    Map ->
+      list.append(children, [
+        svg.g([event.on_click(UserStartedLabelGame)], [
+          svg.rect([
+            attribute("x", int.to_string(width / 2 - 75)),
+            attribute("y", "20"),
+            attribute("width", "150"),
+            attribute("height", "20"),
+            attribute("fill", "#cccccc"),
+          ]),
+          svg.text(
+            [
+              attribute("x", int.to_string(width / 2 - 75)),
+              attribute("y", "35"),
+              attribute("width", "150"),
+              attribute("height", "20"),
+            ],
+            "Play labelling game",
+          ),
+        ]),
+      ])
+    LabelGame(next_guess:, status:, ..) -> {
+      let text = "Where is " <> next_guess.name <> "?"
+      let text_width = string.length(text) * 8
+      let correction_text = case status {
+        Correct -> "Correct!"
+        Incorrect -> "Incorrect!"
+        End -> "You won!"
+        Hint(line:) ->
+          "Hint: It is on the " <> station.line_name(line) <> " line"
+        Revealed(..) -> ""
+        Start -> ""
+      }
+      let correction_text_width = string.length(correction_text) * 7
+      list.append(children, [
+        svg.g([event.on_click(UserStoppedLabelGame)], [
+          svg.rect([
+            attribute("x", int.to_string(width / 2 - 52)),
+            attribute("y", "70"),
+            attribute("width", "100"),
+            attribute("height", "20"),
+            attribute("fill", "#cccccc"),
+          ]),
+          svg.text(
+            [
+              attribute("x", int.to_string(width / 2 - 49)),
+              attribute("y", "85"),
+            ],
+            "Stop playing",
+          ),
+        ]),
+        svg.g([event.on_click(UserClickedHint)], [
+          svg.rect([
+            attribute("x", int.to_string(width / 2 - 72)),
+            attribute("y", "48"),
+            attribute("width", "40"),
+            attribute("height", "20"),
+            attribute("fill", "#cccccc"),
+          ]),
+          svg.text(
+            [
+              attribute("x", int.to_string(width / 2 - 69)),
+              attribute("y", "63"),
+            ],
+            "Hint",
+          ),
+        ]),
+        svg.g([event.on_click(UserClickedSkip)], [
+          svg.rect([
+            attribute("x", int.to_string(width / 2 - 30)),
+            attribute("y", "48"),
+            attribute("width", "40"),
+            attribute("height", "20"),
+            attribute("fill", "#cccccc"),
+          ]),
+          svg.text(
+            [
+              attribute("x", int.to_string(width / 2 - 27)),
+              attribute("y", "63"),
+            ],
+            "Skip",
+          ),
+        ]),
+        svg.g([event.on_click(UserClickedReveal)], [
+          svg.rect([
+            attribute("x", int.to_string(width / 2 + 12)),
+            attribute("y", "48"),
+            attribute("width", "56"),
+            attribute("height", "20"),
+            attribute("fill", "#cccccc"),
+          ]),
+          svg.text(
+            [
+              attribute("x", int.to_string(width / 2 + 15)),
+              attribute("y", "63"),
+            ],
+            "Reveal",
+          ),
+        ]),
+        svg.text(
+          [
+            attribute("x", int.to_string(width / 2 - correction_text_width / 2)),
+            attribute("y", "40"),
+            attribute("textLength", int.to_string(correction_text_width)),
+          ],
+          correction_text,
+        ),
+        svg.text(
+          [
+            attribute("x", int.to_string(width / 2 - text_width / 2)),
+            attribute("y", "20"),
+            attribute("textLength", int.to_string(text_width)),
+          ],
+          text,
+        ),
+      ])
+    }
+  }
+
   svg.svg(
     [
       attribute.width(width),
@@ -324,6 +554,12 @@ fn hovered_station_label(
   station: Station,
   model: Model,
 ) -> Result(#(element.Element(Msg), Float), Nil) {
+  let hidden = case model.state {
+    Map -> False
+    LabelGame(guessed:, ..) -> !set.contains(guessed, station.name)
+  }
+  use <- bool.guard(hidden, Error(Nil))
+
   let x = longitude_to_x(station.longitude)
   let y = latitude_to_y(station.latitude)
 
@@ -334,8 +570,12 @@ fn hovered_station_label(
     int.square_root(squared(x - mouse_x) + squared(y - mouse_y))
 
   let hovering = distance <. int.to_float(station_width + 2)
+  let revealed = case model.state {
+    LabelGame(status: Revealed(name), ..) -> name == station.name
+    _ -> False
+  }
 
-  case hovering {
+  case hovering || revealed {
     False -> Error(Nil)
     True -> {
       let width = string.length(station.name) * 9
@@ -423,6 +663,7 @@ fn station(
   #(
     gradients,
     svg.circle([
+      event.on_click(UserSelectedStation(name: station.name)),
       attribute("cx", int.to_string(x)),
       attribute("cy", int.to_string(y)),
       attribute("r", int.to_string(station_width)),

@@ -46,6 +46,22 @@ pub fn line_colour(line: Line) -> String {
   }
 }
 
+pub fn line_name(line: Line) -> String {
+  case line {
+    Bakerloo -> "Bakerloo"
+    Central -> "Central"
+    Circle -> "Circle"
+    District -> "District"
+    HammersmithAndCity -> "Hammersmith & City"
+    Jubilee -> "Jubilee"
+    Metropolitan -> "Metropolitan"
+    Northern -> "Northern"
+    Piccadilly -> "Piccadilly"
+    Victoria -> "Victoria"
+    WaterlooAndCity -> "Waterloo & City"
+  }
+}
+
 pub type Point {
   Point(longitude: Float, latitude: Float)
 }
