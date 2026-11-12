@@ -89,8 +89,8 @@ fn update(model: Model, msg: Msg) -> Model {
         Some(#(x, y)) if x == model.mouse_x && y == model.mouse_y ->
           Model(..model, mouse_pressed: None, view_box: None)
         Some(#(x, y)) -> {
-          let x = int.min(x, model.mouse_x) - margin
-          let y = int.min(y, model.mouse_y) - margin
+          let x = int.min(x, model.mouse_x)
+          let y = int.min(y, model.mouse_y)
 
           let #(x, y) = transform_coordinates(x, y, model.view_box)
 
@@ -188,15 +188,21 @@ fn update(model: Model, msg: Msg) -> Model {
 }
 
 fn calculate_view_box(x: Int, y: Int, width: Int, height: Int) -> ViewBox {
-  let #(svg_width, svg_height) = svg_dimensions(True)
+  echo #(x, y, width, height)
+
+  let #(svg_width, svg_height) = svg_dimensions()
   let expected_aspect_ratio =
     int.to_float(svg_width) /. int.to_float(svg_height)
+
+  echo #(svg_width, svg_height, expected_aspect_ratio)
 
   let width_f = int.to_float(width)
   let height_f = int.to_float(height)
   let actual_aspect_ratio = width_f /. height_f
 
-  case float.compare(actual_aspect_ratio, expected_aspect_ratio) {
+  echo actual_aspect_ratio
+
+  echo case float.compare(actual_aspect_ratio, expected_aspect_ratio) {
     order.Eq -> ViewBox(x:, y:, width:, height:)
     // The selection is too wide, so we need to increase the height
     order.Gt -> {
@@ -213,6 +219,8 @@ fn calculate_view_box(x: Int, y: Int, width: Int, height: Int) -> ViewBox {
         float.round(width_f *. expected_aspect_ratio /. actual_aspect_ratio)
 
       let new_x = x - { new_width - width } / 2
+
+      echo #(y, height)
 
       ViewBox(x: new_x, y:, width: new_width, height:)
     }
@@ -239,14 +247,10 @@ type Gradients {
 }
 
 fn view(model: Model) -> element.Element(Msg) {
-  let #(width, height) = svg_dimensions(model.view_box != None)
+  let #(width, height) = svg_dimensions()
 
   let #(gradients, stations) =
-    list.map_fold(
-      generated.stations,
-      Gradients([], dict.new(), 0),
-      fn(gradients, st) { station(gradients, st, model.view_box != None) },
-    )
+    list.map_fold(generated.stations, Gradients([], dict.new(), 0), station)
 
   let line_segments =
     list.fold(generated.lines, dict.new(), fn(lines, line) {
@@ -268,13 +272,10 @@ fn view(model: Model) -> element.Element(Msg) {
     list.map_fold(dict.to_list(line_segments), gradients, fn(gradients, pair) {
       let #(#(from, to), lines) = pair
 
-      let x1 =
-        int.to_string(longitude_to_x(from.longitude, model.view_box != None))
-      let y1 =
-        int.to_string(latitude_to_y(from.latitude, model.view_box != None))
-      let x2 =
-        int.to_string(longitude_to_x(to.longitude, model.view_box != None))
-      let y2 = int.to_string(latitude_to_y(to.latitude, model.view_box != None))
+      let x1 = int.to_string(longitude_to_x(from.longitude))
+      let y1 = int.to_string(latitude_to_y(from.latitude))
+      let x2 = int.to_string(longitude_to_x(to.longitude))
+      let y2 = int.to_string(latitude_to_y(to.latitude))
 
       let #(gradients, colour) =
         get_colour(lines, gradients, Some(#(x1, y1, x2, y2)))
@@ -564,22 +565,21 @@ fn hovered_station_label(
     Map -> False
     LabelGame(guessed:, ..) -> !set.contains(guessed, station.name)
   }
-  use <- bool.guard(hidden || model.view_box != None, Error(Nil))
+  use <- bool.guard(hidden, Error(Nil))
 
-  let x = longitude_to_x(station.longitude, model.view_box != None)
-  let y = latitude_to_y(station.latitude, model.view_box != None)
+  let x = longitude_to_x(station.longitude)
+  let y = latitude_to_y(station.latitude)
 
   let #(mouse_x, mouse_y) =
     transform_coordinates(model.mouse_x, model.mouse_y, model.view_box)
-
-  echo #(x, mouse_x, y, mouse_y)
 
   let assert Ok(distance) =
     int.square_root(squared(x - mouse_x) + squared(y - mouse_y))
 
   let hovering = distance <. int.to_float(station_width + 2)
   let revealed = case model.state {
-    LabelGame(status: Revealed(name), ..) -> name == station.name
+    LabelGame(status: Revealed(name), ..) ->
+      name == station.name && model.view_box == None
     _ -> False
   }
 
@@ -593,7 +593,7 @@ fn hovered_station_label(
       let box_y = y - 15
 
       let #(min_x, min_y, max_x) = case model.view_box {
-        None -> #(0, 0, svg_dimensions(False).0)
+        None -> #(0, 0, svg_dimensions().0)
         Some(box) -> #(box.x, box.y, box.x + box.width)
       }
       let #(x, box_x) = case box_x <= min_x {
@@ -645,7 +645,7 @@ fn transform_coordinates(
   case view_box {
     None -> #(x1, y1)
     Some(ViewBox(x:, y:, width:, height:)) -> {
-      let #(svg_width, svg_height) = svg_dimensions(True)
+      let #(svg_width, svg_height) = svg_dimensions()
       #({ x1 * width / svg_width } + x, { y1 * height / svg_height } + y)
     }
   }
@@ -658,10 +658,9 @@ fn squared(x: Int) -> Int {
 fn station(
   gradients: Gradients,
   station: Station,
-  zoomed: Bool,
 ) -> #(Gradients, element.Element(Msg)) {
-  let x = longitude_to_x(station.longitude, zoomed)
-  let y = latitude_to_y(station.latitude, zoomed)
+  let x = longitude_to_x(station.longitude)
+  let y = latitude_to_y(station.latitude)
 
   let colours =
     station.lines
@@ -729,8 +728,8 @@ fn get_colour(
   #(gradients, colour)
 }
 
-fn longitude_to_x(longitude: Float, zoomed: Bool) -> Int {
-  let width = int.to_float(svg_dimensions(zoomed).0 - station_width * 2)
+fn longitude_to_x(longitude: Float) -> Int {
+  let width = int.to_float(svg_dimensions().0 - station_width * 2)
   let x =
     { longitude -. generated.min_longitude }
     *. width
@@ -739,8 +738,8 @@ fn longitude_to_x(longitude: Float, zoomed: Bool) -> Int {
   float.round(x) + station_width
 }
 
-fn latitude_to_y(latitude: Float, zoomed: Bool) -> Int {
-  let svg_height = svg_dimensions(zoomed).1
+fn latitude_to_y(latitude: Float) -> Int {
+  let svg_height = svg_dimensions().1
   let height = int.to_float(svg_height - station_width * 2)
   let y =
     { latitude -. generated.min_latitude }
@@ -755,11 +754,9 @@ const longitude_kms = 69.26
 
 const latitude_kms = 111.19
 
-fn svg_dimensions(zoomed: Bool) -> #(Int, Int) {
+fn svg_dimensions() -> #(Int, Int) {
   let width = window_width() - margin * 2
   let height = window_height() - margin * 2
-
-  use <- bool.guard(zoomed, #(width, height))
 
   let width = int.to_float(width)
   let height = int.to_float(height)
