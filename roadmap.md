@@ -6,5 +6,5 @@ Finish me before shipping
 - [ ] Scrape station info from Wikipedia
 - [ ] Filter by line
 - [ ] Filter by interchange
-- [ ] Set SVG size based on geographical accuracy
+- [x] Set SVG size based on geographical accuracy
 - [x] Add labelling game

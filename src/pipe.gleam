@@ -564,7 +564,7 @@ fn hovered_station_label(
     Map -> False
     LabelGame(guessed:, ..) -> !set.contains(guessed, station.name)
   }
-  use <- bool.guard(hidden, Error(Nil))
+  use <- bool.guard(hidden || model.view_box != None, Error(Nil))
 
   let x = longitude_to_x(station.longitude, model.view_box != None)
   let y = latitude_to_y(station.latitude, model.view_box != None)
